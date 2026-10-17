@@ -65,6 +65,7 @@
           <div><label for="g-gap">Paus mellan tiderna (minuter)</label><input type="number" id="g-gap" min="0" max="240" step="5" value="0"></div>
         </div>
         <div class="actions"><button type="button" class="secondary" id="g-add">Skapa tider</button></div>
+        <p id="g-msg" role="status"></p>
       </div>
 
       <div class="subbox" id="single">
@@ -75,6 +76,7 @@
           <div class="narrow"><label for="s-end">Slut <span class="opt">(valfri)</span></label><input type="time" id="s-end"></div>
         </div>
         <div class="actions"><button type="button" class="secondary" id="s-add">Lägg till</button></div>
+        <p id="s-msg" role="status"></p>
       </div>
 
       <div id="opt-list" class="opt-list" style="margin-top:16px"></div>
@@ -230,25 +232,22 @@ function showError(msg) {
 
 $("s-add").addEventListener("click", () => {
   const date = $("s-date").value, start = $("s-start").value, end = $("s-end").value;
-  if (!date) return showError("Välj ett datum.");
-  if (mode() === "slots" && !start) return showError("Ange en starttid.");
-  if (end && !start) return showError("Ange en starttid om du anger en sluttid.");
-  if (start && end && end <= start) return showError("Sluttiden måste vara efter starttiden.");
-  showError("");
-  addOption({ date, start, end });
+  if (!date) return addMsg("Välj ett datum.", true);
+  if (mode() === "slots" && !start) return addMsg("Ange en starttid.", true);
+  if (end && !start) return addMsg("Ange en starttid om du anger en sluttid.", true);
+  if (start && end && end <= start) return addMsg("Sluttiden måste vara efter starttiden.", true);
+  const o = { date, start, end };
+  if (!addOption(o)) return addMsg(`${fmtOption(o)} finns redan i listan.`, true);
   renderOptions();
-  // Föreslå nästa dag med samma tider, så går det snabbt att lägga till flera
-  const d = parseDate(date); d.setUTCDate(d.getUTCDate() + 1);
-  $("s-date").value = d.toISOString().slice(0, 10);
+  addMsg(`Tillagd: ${fmtOption(o)}. Ändra datum eller tid och lägg till nästa.`);
 });
 
 $("g-add").addEventListener("click", () => {
   const date = $("g-date").value, from = $("g-from").value, to = $("g-to").value;
   const len = parseInt($("g-len").value, 10), gap = parseInt($("g-gap").value, 10) || 0;
-  if (!date || !from || !to) return showError("Fyll i datum, från och till.");
-  if (to <= from) return showError("Till-tiden måste vara efter från-tiden.");
-  if (!(len >= 5)) return showError("Ange en längd på minst 5 minuter.");
-  showError("");
+  if (!date || !from || !to) return genMsg("Fyll i datum, från och till.", true);
+  if (to <= from) return genMsg("Till-tiden måste vara efter från-tiden.", true);
+  if (!(len >= 5)) return genMsg("Ange en längd på minst 5 minuter.", true);
   let t = from, added = 0;
   while (true) {
     const end = addMinutes(t, len);
@@ -258,11 +257,19 @@ $("g-add").addEventListener("click", () => {
     if (!next) break;
     t = next;
   }
-  if (!added) return showError("Inga tider fick plats i intervallet.");
+  if (!added) return genMsg("Inga nya tider fick plats i intervallet (eller så finns de redan i listan).", true);
   renderOptions();
-  const d = parseDate(date); d.setUTCDate(d.getUTCDate() + 1);
-  $("g-date").value = d.toISOString().slice(0, 10);
+  genMsg(`${added} ${added === 1 ? "tid tillagd" : "tider tillagda"} för ${fmtDay(date, true)}. Välj ett nytt datum eller ändra tiderna och skapa fler.`);
 });
+
+function boxMsg(id, text, isError) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = isError ? "error" : "hint";
+  el.style.margin = "10px 0 0";
+}
+function addMsg(text, isError) { boxMsg("s-msg", text, isError); }
+function genMsg(text, isError) { boxMsg("g-msg", text, isError); }
 
 document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", refreshMode));
 document.querySelectorAll("input[name=collect]").forEach((r) => r.addEventListener("change", refreshConfirm));
@@ -292,7 +299,7 @@ $("form").addEventListener("submit", async (e) => {
     retentionDays: $("retention").value,
   };
   const headers = {};
-  if (cfg.passwordRequired) {
+  if (cfg.passwordRequired || $("password").value) {
     headers["x-create-password"] = $("password").value;
     store("hittatid.pw", $("password").value);
   }
@@ -306,6 +313,7 @@ $("form").addEventListener("submit", async (e) => {
     store("hittatid.mine", mine.slice(0, 50));
     showCreated(body.title, share, admin);
   } catch (err) {
+    if (err.status === 403) { cfg.passwordRequired = true; $("pw-card").classList.remove("hidden"); $("password").focus(); }
     showError(err.message);
   } finally {
     $("submit").disabled = false;
@@ -355,7 +363,7 @@ $("mine-list").addEventListener("click", (e) => {
 });
 
 (async () => {
-  try { cfg = await api("config"); } catch { /* visa formuläret ändå */ }
+  try { cfg = await api("config"); } catch { cfg.passwordRequired = true; }
   $("pw-card").classList.toggle("hidden", !cfg.passwordRequired);
   refreshConfirm();
   refreshMode();

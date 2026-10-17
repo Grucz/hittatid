@@ -25,8 +25,9 @@ export async function getDataStore() {
 }
 
 export function env(name) {
-  if (globalThis.Netlify?.env?.get) return globalThis.Netlify.env.get(name) || "";
-  return process.env[name] || "";
+  let v = "";
+  try { v = globalThis.Netlify?.env?.get?.(name) || ""; } catch { v = ""; }
+  return v || process.env[name] || "";
 }
 
 // ---------- små hjälpare ----------
