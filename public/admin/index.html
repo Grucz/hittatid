@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Administration · Hitta tid</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner"><a class="brand" href="/">Hitta tid</a><a class="small-text" href="/">Skapa ny</a></div></header>
+
+<main id="app"><p class="loading">Hämtar…</p></main>
+
+<script src="/common.js"></script>
+<script>
+const hp = new URLSearchParams(location.hash.slice(1));
+const pollId = hp.get("id") || "";
+const adminKey = hp.get("key") || "";
+const app = document.getElementById("app");
+const H = { "x-admin-key": adminKey };
+let poll = null;
+let flash = "";
+
+async function load() {
+  if (!pollId || !adminKey) { app.innerHTML = `<div class="notice">Administratörslänken är ofullständig.</div>`; return; }
+  try {
+    poll = await api(`polls/${encodeURIComponent(pollId)}/admin`, { headers: H });
+  } catch (err) {
+    app.innerHTML = `<div class="notice">${esc(err.message)}</div>`;
+    return;
+  }
+  document.title = `${poll.title} · Administration`;
+  render();
+}
+
+async function action(body, okMsg) {
+  try {
+    const res = await api(`polls/${pollId}/admin`, { method: "POST", body, headers: H });
+    flash = okMsg ? `<div class="notice ok"><p>${okMsg(res)}</p></div>` : "";
+    poll = await api(`polls/${pollId}/admin`, { headers: H });
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function shareUrl() { return `${location.origin}/p/?id=${pollId}`; }
+
+function render() {
+  const s = poll.settings;
+  const collectTxt = { name: "namn", email: "e-post", both: "namn och e-post" }[s.collect];
+  const statusTxt = poll.finalOptionId ? "Tid bestämd" : poll.closed ? "Stängd" : "Öppen";
+  let html = `
+    ${flash}
+    <p class="muted small-text" style="margin:0 0 4px">${poll.mode === "slots" ? "Boka tid" : "Hitta gemensam tid"} · <span class="badge ${poll.closed ? "grey" : ""}">${statusTxt}</span></p>
+    <h1>${esc(poll.title)}</h1>
+    <p class="muted small-text">Deltagarna uppger ${collectTxt}${s.emailConfirm ? ", får e-postbekräftelse" : ""}. ${s.showOthers ? "Deltagarna ser varandra." : "Deltagarna ser inte varandra."} Raderas automatiskt ${esc(fmtDay(poll.deleteAt.slice(0, 10), true))}.</p>
+
+    <div class="card">
+      <h2>Länk till deltagarna</h2>
+      <div class="linkbox"><input type="text" readonly value="${esc(shareUrl())}"><button type="button" class="secondary small" id="copy">Kopiera</button></div>
+      <div class="actions">
+        <a class="btn btn-secondary small" href="${esc(shareUrl())}" target="_blank" rel="noopener">Öppna deltagarsidan</a>
+        ${poll.status === "closed"
+          ? `<button type="button" class="secondary small" id="open">Öppna igen</button>`
+          : `<button type="button" class="secondary small" id="close">Stäng för nya ${poll.mode === "slots" ? "bokningar" : "svar"}</button>`}
+      </div>
+    </div>`;
+
+  html += poll.mode === "poll" ? pollSection() : slotSection();
+
+  html += `<div class="card"><h2>Radera</h2>
+    <p class="hint">Raderar omröstningen och alla ${poll.mode === "slots" ? "bokningar" : "svar"} direkt. Det går inte att ångra.</p>
+    <div class="actions"><button type="button" class="secondary small" id="del">Radera allt nu</button></div></div>`;
+
+  app.innerHTML = html;
+  flash = "";
+
+  document.getElementById("copy").onclick = (e) => copyText(shareUrl(), e.target);
+  document.getElementById("close")?.addEventListener("click", () => action({ action: "close" }, () => "Stängd för nya svar."));
+  document.getElementById("open")?.addEventListener("click", () => action({ action: "open" }, () => "Öppen igen."));
+  document.getElementById("del").onclick = deleteAll;
+  document.getElementById("csv")?.addEventListener("click", exportCsv);
+  app.querySelectorAll("[data-final]").forEach((b) => b.addEventListener("click", () => finalize(b.dataset.final)));
+  document.getElementById("unfinal")?.addEventListener("click", () => action({ action: "unfinalize" }, () => "Den bestämda tiden är borttagen. Omröstningen är öppen igen."));
+  app.querySelectorAll("[data-delresp]").forEach((b) => b.addEventListener("click", () => {
+    if (confirm("Ta bort det här svaret?")) action({ action: "deleteResponse", responseId: b.dataset.delresp }, () => "Svaret är borttaget.");
+  }));
+  app.querySelectorAll("[data-delbook]").forEach((b) => b.addEventListener("click", () => {
+    if (confirm("Ta bort bokningen? Platsen blir ledig igen. Deltagaren får inget meddelande.")) action({ action: "deleteBooking", bookingId: b.dataset.delbook }, () => "Bokningen är borttagen.");
+  }));
+}
+
+// ---------- hitta gemensam tid ----------
+
+function pollSection() {
+  const t = poll.tally, n = poll.responses.length, maybe = poll.settings.allowMaybe;
+  const final = poll.finalOptionId;
+  const ranked = [...poll.options].sort((a, b) => (t[b.id].yes - t[a.id].yes) || (t[b.id].maybe - t[a.id].maybe));
+  const top = n ? ranked[0] : null;
+  const hasEmails = poll.responses.some((r) => r.email);
+
+  let html = `<div class="card"><h2>Resultat</h2>
+    <p class="hint">${n} ${n === 1 ? "svar" : "svar"}. Tiderna är sorterade efter flest ja${maybe ? `, därefter flest ${esc(MAYBE_LABEL.toLowerCase())}` : ""}.</p>`;
+  if (final) html += `<div class="notice ok"><p><strong>Bestämd tid:</strong> ${esc(fmtOption(poll.options.find((o) => o.id === final), true))}</p><p><button type="button" class="link" id="unfinal">Ångra och öppna igen</button></p></div>`;
+  if (!final && hasEmails && poll.emailAvailable) {
+    html += `<label class="check" style="margin-bottom:12px"><input type="checkbox" id="notify" checked> <span>Mejla deltagarna när jag väljer tid (med kalenderfil)</span></label>`;
+  }
+  html += `<ul class="list-plain">`;
+  for (const o of ranked) {
+    const c = t[o.id];
+    html += `<li><span style="flex:1 1 220px">
+        <strong>${esc(fmtDay(o.date, true))}</strong> <span class="muted">${esc(o.start ? "kl. " + fmtTime(o) : "hela dagen")}</span>
+        ${top && o.id === top.id && c.yes + c.maybe > 0 && !final ? ' <span class="badge">Passar flest</span>' : ""}
+        ${final === o.id ? ' <span class="badge accent">Bestämd</span>' : ""}
+        <span class="counts" style="display:block"><b>${c.yes}</b> ja${maybe ? `, <b>${c.maybe}</b> ${esc(MAYBE_LABEL.toLowerCase())}` : ""}, <b>${c.no}</b> nej</span>
+        ${n ? `<span class="bar"><i class="y" style="width:${(c.yes / n) * 100}%"></i><i class="m" style="width:${(c.maybe / n) * 100}%"></i></span>` : ""}
+      </span>
+      ${!final ? `<button type="button" class="secondary small" data-final="${o.id}">Välj den här</button>` : ""}</li>`;
+  }
+  html += `</ul></div>`;
+
+  if (n) {
+    const sym = { y: "Ja", m: "?", n: "–" };
+    html += `<div class="card"><h2>Alla svar</h2>${maybe ? `<p class="hint">? betyder ${esc(MAYBE_LABEL.toLowerCase())}.</p>` : ""}
+      <div class="table-wrap"><table><thead><tr><th>Deltagare</th>`;
+    for (const o of poll.options) html += `<th><span class="th-date">${esc(fmtDay(o.date))}</span><span class="th-time">${esc(fmtTime(o))}</span></th>`;
+    html += `<th></th></tr></thead><tbody>`;
+    for (const r of poll.responses) {
+      const who = [r.name, r.email].filter(Boolean).join(", ");
+      html += `<tr><td>${esc(who)}</td>`;
+      for (const o of poll.options) { const a = r.answers[o.id] || "n"; html += `<td class="${a}">${sym[a]}</td>`; }
+      html += `<td><button type="button" class="link small-text" data-delresp="${r.id}">Ta bort</button></td></tr>`;
+    }
+    html += `</tbody></table></div>
+      <div class="actions"><button type="button" class="secondary small" id="csv">Ladda ned som fil (Excel)</button></div></div>`;
+  }
+  return html;
+}
+
+function finalize(optionId) {
+  const o = poll.options.find((x) => x.id === optionId);
+  const notify = document.getElementById("notify")?.checked || false;
+  if (!confirm(`Välj ${fmtOption(o, true)} som bestämd tid?${notify ? "\n\nDeltagare med e-post får ett mejl med kalenderfil." : ""}\n\nOmröstningen stängs för nya svar.`)) return;
+  action({ action: "finalize", optionId, notify }, (res) => `Tiden är bestämd.${notify ? ` ${res.notified} ${res.notified === 1 ? "mejl skickat" : "mejl skickade"}.` : ""}`);
+}
+
+// ---------- boka tid ----------
+
+function slotSection() {
+  const cap = poll.settings.capacity;
+  const byslot = {};
+  for (const b of poll.bookings) (byslot[b.slotId] ||= []).push(b);
+  const booked = poll.bookings.length, total = poll.options.length * cap;
+
+  let html = `<div class="card"><h2>Bokningar</h2>
+    <p class="hint">${booked} av ${total} platser bokade.</p>`;
+  for (const [date, list] of groupByDate(poll.options)) {
+    html += `<h3 class="day-head" style="margin:16px 0 4px">${esc(fmtDay(date, true))}</h3><ul class="list-plain">`;
+    for (const o of list) {
+      const bs = byslot[o.id] || [];
+      html += `<li style="align-items:flex-start"><span style="flex:0 0 110px"><strong>${esc(fmtTime(o))}</strong><br><span class="muted small-text">${bs.length}/${cap}</span></span><span style="flex:1 1 200px">`;
+      if (!bs.length) html += `<span class="muted small-text">Ledig</span>`;
+      for (const b of bs) {
+        const who = [b.name, b.email].filter(Boolean).join(", ");
+        html += `<span style="display:flex;justify-content:space-between;gap:8px;align-items:center">${esc(who)} <button type="button" class="link small-text" data-delbook="${b.id}">Ta bort</button></span>`;
+      }
+      html += `</span></li>`;
+    }
+    html += `</ul>`;
+  }
+  html += booked ? `<div class="actions"><button type="button" class="secondary small" id="csv">Ladda ned som fil (Excel)</button></div>` : "";
+  html += `</div>`;
+  return html;
+}
+
+// ---------- export och radering ----------
+
+function exportCsv() {
+  const c = poll.settings.collect;
+  const idCols = c === "both" ? ["Namn", "E-post"] : c === "email" ? ["E-post"] : ["Namn"];
+  const idVals = (r) => c === "both" ? [r.name, r.email] : c === "email" ? [r.email] : [r.name];
+  let rows;
+  if (poll.mode === "poll") {
+    const label = { y: "Ja", m: MAYBE_LABEL, n: "Nej" };
+    rows = [[...idCols, ...poll.options.map((o) => `${o.date} ${fmtTime(o)}`)]];
+    for (const r of poll.responses) rows.push([...idVals(r), ...poll.options.map((o) => label[r.answers[o.id] || "n"])]);
+  } else {
+    rows = [["Datum", "Tid", ...idCols, "Bokad"]];
+    const order = new Map(poll.options.map((o, i) => [o.id, i]));
+    const list = [...poll.bookings].sort((a, b) => order.get(a.slotId) - order.get(b.slotId));
+    for (const b of list) {
+      const o = poll.options.find((x) => x.id === b.slotId);
+      rows.push([o.date, fmtTime(o), ...idVals(b), b.createdAt.slice(0, 16).replace("T", " ")]);
+    }
+  }
+  downloadCsv(`${poll.title.replace(/[^\wåäöÅÄÖ -]/g, "").trim() || "export"}.csv`, rows);
+}
+
+async function deleteAll() {
+  if (!confirm("Radera omröstningen och alla svar nu? Det går inte att ångra.")) return;
+  try {
+    await api(`polls/${pollId}/admin`, { method: "DELETE", headers: H });
+    const mine = (store("hittatid.mine") || []).filter((p) => p.id !== pollId);
+    store("hittatid.mine", mine);
+    app.innerHTML = `<div class="notice ok"><p>Raderad.</p></div><p><a href="/">Till startsidan</a></p>`;
+  } catch (err) { alert(err.message); }
+}
+
+load();
+</script>
+</body>
+</html>

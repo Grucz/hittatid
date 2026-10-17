@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hitta tid</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner"><span class="brand">Hitta tid</span></div></header>
+
+<main id="app"><p class="loading">Hämtar…</p></main>
+
+<script src="/common.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const pollId = params.get("id") || "";
+const app = document.getElementById("app");
+let poll = null;
+let flash = "";
+
+function header() {
+  return `
+    <h1>${esc(poll.title)}</h1>
+    ${poll.organizer ? `<p class="muted" style="margin:0 0 4px">Från ${esc(poll.organizer)}</p>` : ""}
+    ${poll.location ? `<p class="muted" style="margin:0 0 4px">Plats: ${esc(poll.location)}</p>` : ""}
+    ${poll.description ? `<p style="white-space:pre-line;margin:12px 0 0">${esc(poll.description)}</p>` : ""}
+    ${poll.settings.deadline && !poll.closed ? `<p class="muted small-text" style="margin:12px 0 0">Sista svarsdag: ${esc(fmtDay(poll.settings.deadline, true))}</p>` : ""}
+    <div style="height:20px"></div>
+    ${flash}`;
+}
+
+function identityFields(prefill = {}, lockEmail = false) {
+  const c = poll.settings.collect;
+  let html = "";
+  if (c === "name" || c === "both") {
+    html += `<label for="f-name">Ditt namn</label><input type="text" id="f-name" maxlength="100" autocomplete="name" value="${esc(prefill.name || "")}">`;
+  }
+  if (c === "email" || c === "both") {
+    html += `<label for="f-email">Din e-post</label><input type="email" id="f-email" maxlength="200" autocomplete="email" value="${esc(prefill.email || "")}" ${lockEmail ? "readonly" : ""}>`;
+  }
+  if (poll.settings.emailConfirm) html += `<p class="hint">Du får en bekräftelse till din e-post.</p>`;
+  return html;
+}
+
+function identityValues() {
+  return {
+    name: document.getElementById("f-name")?.value || "",
+    email: document.getElementById("f-email")?.value || "",
+  };
+}
+
+async function load() {
+  if (!pollId) { app.innerHTML = `<div class="notice">Länken saknar uppgift om vilken omröstning det gäller.</div>`; return; }
+  try {
+    poll = await api(`polls/${encodeURIComponent(pollId)}`);
+  } catch (err) {
+    app.innerHTML = `<div class="notice">${esc(err.message)}</div>`;
+    return;
+  }
+  document.title = `${poll.title} · Hitta tid`;
+  if (poll.mode === "poll") await renderPoll();
+  else await renderSlots();
+}
+
+// ======================= HITTA GEMENSAM TID =======================
+
+let mine = null; // {id, token}
+let myAnswers = null;
+
+async function renderPoll() {
+  if (!mine) {
+    const urlResp = params.get("svar"), urlKey = params.get("nyckel");
+    mine = urlResp && urlKey ? { id: urlResp, token: urlKey } : store(`hittatid.resp.${pollId}`);
+    if (mine) {
+      try {
+        myAnswers = await api(`polls/${pollId}/responses/${mine.id}?token=${encodeURIComponent(mine.token)}`);
+        store(`hittatid.resp.${pollId}`, mine);
+      } catch { mine = null; myAnswers = null; store(`hittatid.resp.${pollId}`, null); }
+    }
+  }
+
+  const t = poll.tally || {};
+  const opts = poll.options;
+  let bestScore = null;
+  if (poll.responseCount) {
+    for (const o of opts) {
+      const s = [t[o.id].yes, t[o.id].maybe];
+      if (!bestScore || s[0] > bestScore[0] || (s[0] === bestScore[0] && s[1] > bestScore[1])) bestScore = s;
+    }
+    if (bestScore && bestScore[0] + bestScore[1] === 0) bestScore = null;
+  }
+  const isBest = (o) => bestScore && t[o.id].yes === bestScore[0] && t[o.id].maybe === bestScore[1];
+  const final = poll.finalOptionId ? opts.find((o) => o.id === poll.finalOptionId) : null;
+  const canAnswer = !poll.closed;
+  const maybe = poll.settings.allowMaybe;
+
+  let html = header();
+
+  if (final) {
+    html += `<div class="notice ok"><p><strong>Tiden är bestämd:</strong> ${esc(fmtOption(final, true))}</p>
+      <p><a class="btn small" href="/api/polls/${pollId}/ics/${final.id}">Lägg till i kalendern</a></p></div>`;
+  } else if (poll.closed) {
+    html += `<div class="notice warn"><p>Omröstningen är stängd för nya svar.</p></div>`;
+  }
+
+  if (myAnswers && canAnswer && !flash) {
+    html += `<div class="notice"><p>Du har redan svarat. Du kan ändra ditt svar nedan.</p></div>`;
+  }
+
+  html += `<form id="pf" novalidate>`;
+  html += `<h2 style="margin-bottom:12px">${canAnswer ? "Vilka tider kan du?" : "Föreslagna tider"}</h2>`;
+
+  for (const o of opts) {
+    const c = t[o.id] || { yes: 0, maybe: 0, no: 0 };
+    const total = poll.responseCount || 0;
+    const cur = myAnswers?.answers?.[o.id] || "";
+    const cls = final && final.id === o.id ? "final" : (!final && isBest(o) ? "best" : "");
+    html += `<div class="option-card ${cls}">
+      <div class="option-head">
+        <span class="option-when">${esc(fmtDay(o.date, true))} <span class="time">${esc(o.start ? "kl. " + fmtTime(o) : "hela dagen")}</span></span>
+        ${final && final.id === o.id ? `<span class="badge accent">Bestämd tid</span>` : (!final && isBest(o) ? `<span class="badge">Passar flest</span>` : "")}
+      </div>`;
+    if (canAnswer) {
+      html += `<div class="answer ${maybe ? "" : "two"}" role="radiogroup" aria-label="${esc(fmtOption(o))}">
+        <label class="y"><input type="radio" name="a-${o.id}" value="y" ${cur === "y" ? "checked" : ""}>Ja</label>
+        ${maybe ? `<label class="m"><input type="radio" name="a-${o.id}" value="m" ${cur === "m" ? "checked" : ""}>${esc(MAYBE_LABEL)}</label>` : ""}
+        <label class="n"><input type="radio" name="a-${o.id}" value="n" ${cur === "n" ? "checked" : ""}>Nej</label>
+      </div>`;
+    }
+    if (total) {
+      html += `<div class="counts" style="margin-top:10px"><b>${c.yes}</b> ja${maybe ? `, <b>${c.maybe}</b> ${esc(MAYBE_LABEL.toLowerCase())}` : ""} av ${total}</div>
+        <div class="bar"><i class="y" style="width:${(c.yes / total) * 100}%"></i><i class="m" style="width:${(c.maybe / total) * 100}%"></i></div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (canAnswer) {
+    html += `<div class="card" style="margin-top:16px">
+      ${identityFields(myAnswers || {}, Boolean(myAnswers))}
+      <p class="hint">Tider du inte markerar räknas som nej.</p>
+      <p class="error hidden" id="err" role="alert"></p>
+      <div class="actions"><button type="submit" id="send">${myAnswers ? "Spara ändringar" : "Skicka svar"}</button></div>
+    </div>`;
+  }
+  html += `</form>`;
+
+  if (poll.responses?.length) html += othersTable();
+  else if (poll.responseCount) html += `<p class="muted small-text" style="margin-top:24px">${poll.responseCount} ${poll.responseCount === 1 ? "person har" : "personer har"} svarat. Arrangören har valt att inte visa vem som svarat vad.</p>`;
+
+  app.innerHTML = html;
+
+  const form = document.getElementById("pf");
+  if (canAnswer) form.addEventListener("submit", submitAnswer);
+}
+
+function othersTable() {
+  const opts = poll.options;
+  const sym = { y: "Ja", m: "?", n: "–" };
+  let html = `<h2 style="margin:32px 0 12px">Svar hittills</h2>`;
+  if (poll.settings.allowMaybe) html += `<p class="hint">? betyder ${esc(MAYBE_LABEL.toLowerCase())}.</p>`;
+  html += `<div class="table-wrap"><table><thead><tr><th>Namn</th>`;
+  for (const o of opts) html += `<th><span class="th-date">${esc(fmtDay(o.date))}</span><span class="th-time">${esc(fmtTime(o))}</span></th>`;
+  html += `</tr></thead><tbody>`;
+  for (const r of poll.responses) {
+    const me = mine && r.id === mine.id;
+    html += `<tr><td>${esc(r.name)}${me ? ' <span class="muted">(du)</span>' : ""}</td>`;
+    for (const o of opts) { const a = r.answers[o.id] || "n"; html += `<td class="${a}">${sym[a]}</td>`; }
+    html += `</tr>`;
+  }
+  html += `</tbody><tfoot><tr><td>Ja</td>`;
+  for (const o of opts) html += `<td>${poll.tally[o.id].yes}</td>`;
+  html += `</tr></tfoot></table></div>`;
+  return html;
+}
+
+async function submitAnswer(e) {
+  e.preventDefault();
+  const err = document.getElementById("err");
+  err.classList.add("hidden");
+  const answers = {};
+  for (const o of poll.options) {
+    const checked = document.querySelector(`input[name="a-${o.id}"]:checked`);
+    answers[o.id] = checked ? checked.value : "n";
+  }
+  const btn = document.getElementById("send");
+  btn.disabled = true;
+  try {
+    if (myAnswers && mine) {
+      await api(`polls/${pollId}/responses/${mine.id}`, { method: "PUT", body: { answers, ...identityValues() }, headers: { "x-edit-token": mine.token } });
+      flash = `<div class="notice ok"><p>Dina ändringar är sparade.</p></div>`;
+    } else {
+      const res = await api(`polls/${pollId}/responses`, { method: "POST", body: { answers, ...identityValues() } });
+      mine = { id: res.id, token: res.token };
+      store(`hittatid.resp.${pollId}`, mine);
+      flash = `<div class="notice ok"><p>Tack, ditt svar är sparat.</p><p class="small-text">Du kan ändra det senare från den här webbläsaren${poll.settings.emailConfirm ? " eller via länken i bekräftelsemejlet" : ""}.</p></div>`;
+    }
+    myAnswers = null;
+    mine = mine; // behåll
+    poll = await api(`polls/${pollId}`);
+    myAnswers = await api(`polls/${pollId}/responses/${mine.id}?token=${encodeURIComponent(mine.token)}`).catch(() => null);
+    await renderPoll();
+    window.scrollTo(0, 0);
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove("hidden");
+    btn.disabled = false;
+  }
+}
+
+// ======================= BOKA TID =======================
+
+let myBookings = null; // [{id, token, slotId}]
+
+async function loadMyBookings() {
+  let list = store(`hittatid.book.${pollId}`) || [];
+  const urlB = params.get("bokning"), urlK = params.get("nyckel");
+  if (urlB && urlK && !list.some((b) => b.id === urlB)) list.push({ id: urlB, token: urlK });
+  const checked = await Promise.all(list.map(async (b) => {
+    try {
+      const r = await api(`polls/${pollId}/bookings/${b.id}?token=${encodeURIComponent(b.token)}`);
+      return { ...b, slotId: r.slotId };
+    } catch (err) {
+      return err.status === 404 ? null : b;
+    }
+  }));
+  myBookings = checked.filter(Boolean);
+  store(`hittatid.book.${pollId}`, myBookings);
+}
+
+function slotPassed(o) {
+  const [y, m, d] = o.date.split("-").map(Number);
+  const [hh, mm] = o.start.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm).getTime() < Date.now();
+}
+
+async function renderSlots() {
+  if (!myBookings) await loadMyBookings();
+  const cap = poll.settings.capacity;
+  const counts = poll.counts || {};
+  const mineIds = new Set(myBookings.map((b) => b.slotId));
+  const max = poll.settings.maxPerPerson;
+  const reachedMax = max > 0 && myBookings.length >= max;
+
+  let html = header();
+
+  if (poll.closed) html += `<div class="notice warn"><p>Bokningen är stängd.</p></div>`;
+
+  if (myBookings.length) {
+    html += `<div class="card"><h2>${myBookings.length === 1 ? "Din bokning" : "Dina bokningar"}</h2><ul class="list-plain">`;
+    for (const b of myBookings) {
+      const o = poll.options.find((x) => x.id === b.slotId);
+      if (!o) continue;
+      html += `<li><strong>${esc(fmtOption(o, true))}</strong>
+        <span class="actions" style="margin:0"><a class="btn btn-secondary small" href="/api/polls/${pollId}/ics/${o.id}">Till kalendern</a>
+        <button type="button" class="link" data-cancel="${esc(b.id)}">Avboka</button></span></li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (!poll.closed) {
+    html += `<h2 style="margin:8px 0 4px">${myBookings.length ? "Lediga tider" : "Välj en tid"}</h2>
+      <p class="hint">${reachedMax ? (max === 1 ? "Du har bokat en tid. Avboka den om du vill byta." : `Du har bokat ${max} tider, vilket är max.`) : (cap > 1 ? `Varje tid har ${cap} platser.` : "Varje tid kan bokas av en person.")}</p>`;
+  }
+
+  for (const [date, list] of groupByDate(poll.options)) {
+    html += `<div class="slot-day"><h3>${esc(fmtDay(date, true))}</h3><div class="slot-grid">`;
+    for (const o of list) {
+      const used = counts[o.id] || 0;
+      const left = Math.max(0, cap - used);
+      const passed = slotPassed(o);
+      const isMine = mineIds.has(o.id);
+      const full = left === 0;
+      const disabled = poll.closed || passed || full || isMine || reachedMax;
+      let status = isMine ? "Du har bokat" : passed ? "Passerad" : full ? "Fullbokad" : cap === 1 ? "Ledig" : `${left} av ${cap} lediga`;
+      const names = poll.names?.[o.id];
+      html += `<button type="button" class="slot ${full && !isMine ? "full" : ""} ${passed && !isMine ? "passed" : ""} ${isMine ? "mine" : ""}" data-slot="${o.id}" ${disabled ? "disabled" : ""}>
+        <span class="t">${esc(fmtTime(o))}</span><span class="s">${esc(status)}</span>
+        ${names?.length ? `<span class="names">${esc(names.join(", "))}</span>` : ""}</button>`;
+    }
+    html += `</div></div>`;
+  }
+
+  app.innerHTML = html;
+
+  app.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => openSheet(b.dataset.slot)));
+  app.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", () => cancel(b.dataset.cancel)));
+}
+
+function openSheet(slotId) {
+  const o = poll.options.find((x) => x.id === slotId);
+  const last = store("hittatid.me") || {};
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-backdrop";
+  wrap.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-t">
+    <h2 id="sh-t">Boka ${esc(fmtOption(o, true))}</h2>
+    <form id="bf" novalidate>
+      ${identityFields(last)}
+      <p class="error hidden" id="berr" role="alert"></p>
+      <div class="actions"><button type="submit" id="bsend">Boka</button><button type="button" class="secondary" id="bclose">Avbryt</button></div>
+    </form></div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector("#bclose").onclick = close;
+  document.addEventListener("keydown", function esc_(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc_); } });
+  wrap.querySelector("input")?.focus();
+  wrap.querySelector("#bf").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const err = wrap.querySelector("#berr");
+    err.classList.add("hidden");
+    const btn = wrap.querySelector("#bsend");
+    btn.disabled = true;
+    const who = identityValues();
+    try {
+      const res = await api(`polls/${pollId}/bookings`, { method: "POST", body: { slotId, ...who } });
+      store("hittatid.me", who);
+      myBookings.push({ id: res.id, token: res.token, slotId });
+      store(`hittatid.book.${pollId}`, myBookings);
+      close();
+      flash = `<div class="notice ok"><p><strong>Bokat:</strong> ${esc(fmtOption(o, true))}</p>
+        <p class="small-text">${poll.settings.emailConfirm ? "En bekräftelse är på väg till din e-post. " : ""}Bokningen sparas i den här webbläsaren, så du kan avboka här.</p>
+        <p><a class="btn small" href="/api/polls/${pollId}/ics/${o.id}">Lägg till i kalendern</a></p></div>`;
+      poll = await api(`polls/${pollId}`);
+      await renderSlots();
+      window.scrollTo(0, 0);
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.classList.remove("hidden");
+      btn.disabled = false;
+      if (ex.status === 409) { poll = await api(`polls/${pollId}`); await renderSlots(); }
+    }
+  });
+}
+
+async function cancel(bookingId) {
+  const b = myBookings.find((x) => x.id === bookingId);
+  if (!b || !confirm("Vill du avboka den här tiden?")) return;
+  try {
+    await api(`polls/${pollId}/bookings/${b.id}?token=${encodeURIComponent(b.token)}`, { method: "DELETE" });
+  } catch (ex) {
+    if (ex.status !== 404) { alert(ex.message); return; }
+  }
+  myBookings = myBookings.filter((x) => x.id !== bookingId);
+  store(`hittatid.book.${pollId}`, myBookings);
+  if (params.get("bokning") === bookingId) {
+    params.delete("bokning"); params.delete("nyckel");
+    history.replaceState(null, "", `?${params}`);
+  }
+  flash = `<div class="notice"><p>Bokningen är avbokad.</p></div>`;
+  poll = await api(`polls/${pollId}`);
+  await renderSlots();
+  window.scrollTo(0, 0);
+}
+
+load();
+</script>
+</body>
+</html>

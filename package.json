@@ -1,0 +1,10 @@
+{
+  "name": "hitta-tid",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hitta gemensam tid och boka tider. Netlify Functions och Netlify Blobs.",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.11"
+  }
+}

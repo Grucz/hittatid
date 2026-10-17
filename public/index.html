@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hitta tid</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar"><div class="topbar-inner"><a class="brand" href="/">Hitta tid</a></div></header>
+
+<main>
+  <section id="created" class="hidden"></section>
+
+  <form id="form" novalidate>
+    <h1>Skapa ny</h1>
+    <p class="lead">Hitta en tid som passar flest, eller lägg ut tider som deltagarna bokar själva.</p>
+
+    <div class="card">
+      <h2>Typ</h2>
+      <div class="choice-grid" style="margin-top:12px">
+        <label class="choice"><input type="radio" name="mode" value="poll" checked>
+          <strong>Hitta gemensam tid</strong>
+          <span>Du föreslår tider. Deltagarna svarar vilka de kan, och du ser vilken tid som passar flest.</span>
+        </label>
+        <label class="choice"><input type="radio" name="mode" value="slots">
+          <strong>Boka tid</strong>
+          <span>Du lägger ut tider. Deltagarna bokar sig själva, först till kvarn.</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Om mötet</h2>
+      <label for="title">Rubrik</label>
+      <input type="text" id="title" maxlength="140" required placeholder="T.ex. Uppföljningsmöte ledningsgruppen">
+      <label for="description">Beskrivning <span class="opt">(valfri)</span></label>
+      <textarea id="description" maxlength="2000"></textarea>
+      <div class="row">
+        <div>
+          <label for="location">Plats eller länk <span class="opt">(valfri)</span></label>
+          <input type="text" id="location" maxlength="200">
+        </div>
+        <div>
+          <label for="organizer">Arrangör <span class="opt">(valfri)</span></label>
+          <input type="text" id="organizer" maxlength="120" placeholder="Visas för deltagarna">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tider</h2>
+      <p class="hint" id="times-hint">Lägg till de tider du vill föreslå. Starttid och sluttid är valfria.</p>
+
+      <div id="generator" class="subbox hidden">
+        <h3 style="margin-top:12px">Skapa flera tider på en gång</h3>
+        <div class="row">
+          <div><label for="g-date">Datum</label><input type="date" id="g-date"></div>
+          <div class="narrow"><label for="g-from">Från</label><input type="time" id="g-from" value="09:00"></div>
+          <div class="narrow"><label for="g-to">Till</label><input type="time" id="g-to" value="12:00"></div>
+        </div>
+        <div class="row">
+          <div><label for="g-len">Längd per tid (minuter)</label><input type="number" id="g-len" min="5" max="480" step="5" value="30"></div>
+          <div><label for="g-gap">Paus mellan tiderna (minuter)</label><input type="number" id="g-gap" min="0" max="240" step="5" value="0"></div>
+        </div>
+        <div class="actions"><button type="button" class="secondary" id="g-add">Skapa tider</button></div>
+      </div>
+
+      <div class="subbox" id="single">
+        <h3 style="margin-top:12px" id="single-title">Lägg till en tid</h3>
+        <div class="row">
+          <div><label for="s-date">Datum</label><input type="date" id="s-date"></div>
+          <div class="narrow"><label for="s-start">Start <span class="opt" id="s-start-opt">(valfri)</span></label><input type="time" id="s-start"></div>
+          <div class="narrow"><label for="s-end">Slut <span class="opt">(valfri)</span></label><input type="time" id="s-end"></div>
+        </div>
+        <div class="actions"><button type="button" class="secondary" id="s-add">Lägg till</button></div>
+      </div>
+
+      <div id="opt-list" class="opt-list" style="margin-top:16px"></div>
+      <p class="hint" id="opt-count"></p>
+    </div>
+
+    <div class="card">
+      <h2>Deltagarna</h2>
+      <label>Vad ska deltagarna uppge?</label>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="collect" value="name" checked>Namn</label>
+        <label><input type="radio" name="collect" value="email">E-post</label>
+        <label><input type="radio" name="collect" value="both">Namn och e-post</label>
+      </div>
+      <p class="hint">Både namn och e-post är personuppgifter. Med bara namn samlar du in mindre, och e-post behövs bara om deltagarna ska få bekräftelse.</p>
+
+      <label class="check" id="confirm-wrap"><input type="checkbox" id="emailConfirm"> <span id="confirm-text">Skicka bekräftelse via e-post till deltagarna</span></label>
+
+      <div id="poll-settings">
+        <label class="check"><input type="checkbox" id="allowMaybe" checked> <span>Tillåt svaret <strong id="maybe-name">Om det behövs</strong> (utöver ja och nej)</span></label>
+        <label class="check"><input type="checkbox" id="showOthersPoll" checked> <span>Deltagarna ser varandras svar</span></label>
+      </div>
+
+      <div id="slot-settings" class="hidden">
+        <div class="row">
+          <div><label for="capacity">Platser per tid</label><input type="number" id="capacity" min="1" max="500" value="1"></div>
+          <div><label for="maxPerPerson">Bokningar per person</label>
+            <select id="maxPerPerson">
+              <option value="1" selected>En tid</option>
+              <option value="2">Högst två</option>
+              <option value="3">Högst tre</option>
+              <option value="0">Obegränsat</option>
+            </select>
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="showOthersSlots"> <span>Deltagarna ser vem som har bokat (visar bara namn, aldrig e-post)</span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Avslut och radering</h2>
+      <div class="row">
+        <div><label for="deadline">Sista svarsdag <span class="opt">(valfri)</span></label><input type="date" id="deadline"></div>
+        <div><label for="retention">Radera allt automatiskt</label>
+          <select id="retention">
+            <option value="7">7 dagar efter sista tiden</option>
+            <option value="30" selected>30 dagar efter sista tiden</option>
+            <option value="90">90 dagar efter sista tiden</option>
+            <option value="365">Ett år efter sista tiden</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="pw-card">
+      <label for="password" style="margin-top:0">Lösenord för att skapa</label>
+      <input type="password" id="password" autocomplete="current-password">
+      <p class="hint">Sparas i den här webbläsaren så att du inte behöver skriva det varje gång.</p>
+    </div>
+
+    <p class="error hidden" id="error" role="alert"></p>
+    <div class="actions"><button type="submit" id="submit">Skapa och få länkar</button></div>
+  </form>
+
+  <section id="mine" class="hidden" style="margin-top:32px">
+    <h2>Skapade i den här webbläsaren</h2>
+    <div class="card" style="padding:4px 20px"><ul class="list-plain" id="mine-list"></ul></div>
+  </section>
+</main>
+
+<script src="/common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let options = [];
+let cfg = { emailAvailable: false, passwordRequired: false };
+
+$("maybe-name").textContent = MAYBE_LABEL;
+$("s-date").value = todayStr();
+$("g-date").value = todayStr();
+$("password").value = store("hittatid.pw") || "";
+
+function mode() { return document.querySelector("input[name=mode]:checked").value; }
+function collect() { return document.querySelector("input[name=collect]:checked").value; }
+
+function refreshMode() {
+  const slots = mode() === "slots";
+  $("generator").classList.toggle("hidden", !slots);
+  $("slot-settings").classList.toggle("hidden", !slots);
+  $("poll-settings").classList.toggle("hidden", slots);
+  $("times-hint").textContent = slots
+    ? "Skapa tiderna som deltagarna ska kunna boka. Varje tid behöver en starttid."
+    : "Lägg till de tider du vill föreslå. Starttid och sluttid är valfria, utan tid gäller förslaget hela dagen.";
+  $("s-start-opt").classList.toggle("hidden", slots);
+  $("single-title").textContent = slots ? "Lägg till en enskild tid" : "Lägg till en tid";
+  renderOptions();
+}
+
+function refreshConfirm() {
+  const wantsEmail = collect() !== "name";
+  const cb = $("emailConfirm");
+  const can = wantsEmail && cfg.emailAvailable;
+  cb.disabled = !can;
+  if (!can) cb.checked = false;
+  $("confirm-wrap").classList.toggle("disabled", !can);
+  $("confirm-text").textContent = !cfg.emailAvailable
+    ? "Skicka bekräftelse via e-post (e-postutskick är inte inställt på webbplatsen än)"
+    : !wantsEmail
+      ? "Skicka bekräftelse via e-post (kräver att deltagarna uppger e-post)"
+      : "Skicka bekräftelse via e-post till deltagarna";
+}
+
+function sortOpts() {
+  options.sort((a, b) => (a.date + (a.start || "")).localeCompare(b.date + (b.start || "")));
+}
+
+function addOption(o) {
+  const key = `${o.date}|${o.start}|${o.end}`;
+  if (options.some((x) => `${x.date}|${x.start}|${x.end}` === key)) return false;
+  options.push(o);
+  return true;
+}
+
+function renderOptions() {
+  sortOpts();
+  const box = $("opt-list");
+  if (!options.length) {
+    box.innerHTML = '<p class="muted small-text" style="margin:0">Inga tider tillagda än.</p>';
+    $("opt-count").textContent = "";
+    return;
+  }
+  let html = "";
+  for (const [date, list] of groupByDate(options)) {
+    html += `<div class="opt-day"><h3>${esc(fmtDay(date, true))}</h3><div class="chips">`;
+    for (const o of list) {
+      const i = options.indexOf(o);
+      html += `<span class="chip">${esc(fmtTime(o))}<button type="button" aria-label="Ta bort ${esc(fmtOption(o))}" data-remove="${i}">×</button></span>`;
+    }
+    html += `</div></div>`;
+  }
+  box.innerHTML = html;
+  $("opt-count").textContent = `${options.length} ${options.length === 1 ? "tid" : "tider"} totalt.`;
+}
+
+$("opt-list").addEventListener("click", (e) => {
+  const i = e.target.dataset.remove;
+  if (i !== undefined) { options.splice(Number(i), 1); renderOptions(); }
+});
+
+function showError(msg) {
+  $("error").textContent = msg;
+  $("error").classList.toggle("hidden", !msg);
+}
+
+$("s-add").addEventListener("click", () => {
+  const date = $("s-date").value, start = $("s-start").value, end = $("s-end").value;
+  if (!date) return showError("Välj ett datum.");
+  if (mode() === "slots" && !start) return showError("Ange en starttid.");
+  if (end && !start) return showError("Ange en starttid om du anger en sluttid.");
+  if (start && end && end <= start) return showError("Sluttiden måste vara efter starttiden.");
+  showError("");
+  addOption({ date, start, end });
+  renderOptions();
+  // Föreslå nästa dag med samma tider, så går det snabbt att lägga till flera
+  const d = parseDate(date); d.setUTCDate(d.getUTCDate() + 1);
+  $("s-date").value = d.toISOString().slice(0, 10);
+});
+
+$("g-add").addEventListener("click", () => {
+  const date = $("g-date").value, from = $("g-from").value, to = $("g-to").value;
+  const len = parseInt($("g-len").value, 10), gap = parseInt($("g-gap").value, 10) || 0;
+  if (!date || !from || !to) return showError("Fyll i datum, från och till.");
+  if (to <= from) return showError("Till-tiden måste vara efter från-tiden.");
+  if (!(len >= 5)) return showError("Ange en längd på minst 5 minuter.");
+  showError("");
+  let t = from, added = 0;
+  while (true) {
+    const end = addMinutes(t, len);
+    if (!end || end > to) break;
+    if (addOption({ date, start: t, end })) added++;
+    const next = addMinutes(end, gap);
+    if (!next) break;
+    t = next;
+  }
+  if (!added) return showError("Inga tider fick plats i intervallet.");
+  renderOptions();
+  const d = parseDate(date); d.setUTCDate(d.getUTCDate() + 1);
+  $("g-date").value = d.toISOString().slice(0, 10);
+});
+
+document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", refreshMode));
+document.querySelectorAll("input[name=collect]").forEach((r) => r.addEventListener("change", refreshConfirm));
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  showError("");
+  const m = mode();
+  if (!$("title").value.trim()) return showError("Ange en rubrik.");
+  if (!options.length) return showError("Lägg till minst en tid.");
+  if (m === "slots" && options.some((o) => !o.start)) return showError("I läget boka tid måste alla tider ha en starttid. Ta bort tiderna som saknar det.");
+
+  const body = {
+    mode: m,
+    title: $("title").value,
+    description: $("description").value,
+    location: $("location").value,
+    organizer: $("organizer").value,
+    options,
+    collect: collect(),
+    emailConfirm: $("emailConfirm").checked,
+    allowMaybe: $("allowMaybe").checked,
+    showOthers: m === "poll" ? $("showOthersPoll").checked : $("showOthersSlots").checked,
+    capacity: $("capacity").value,
+    maxPerPerson: $("maxPerPerson").value,
+    deadline: $("deadline").value,
+    retentionDays: $("retention").value,
+  };
+  const headers = {};
+  if (cfg.passwordRequired) {
+    headers["x-create-password"] = $("password").value;
+    store("hittatid.pw", $("password").value);
+  }
+  $("submit").disabled = true;
+  try {
+    const res = await api("polls", { method: "POST", body, headers });
+    const share = `${location.origin}/p/?id=${res.id}`;
+    const admin = `${location.origin}/admin/#id=${res.id}&key=${res.adminKey}`;
+    const mine = store("hittatid.mine") || [];
+    mine.unshift({ id: res.id, title: body.title, mode: m, admin, createdAt: new Date().toISOString() });
+    store("hittatid.mine", mine.slice(0, 50));
+    showCreated(body.title, share, admin);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    $("submit").disabled = false;
+  }
+});
+
+function showCreated(title, share, admin) {
+  const box = $("created");
+  box.innerHTML = `
+    <div class="notice ok"><p><strong>${esc(title)}</strong> är skapad.</p></div>
+    <div class="card">
+      <h2>Länk till deltagarna</h2>
+      <p class="hint">Skicka den här länken till dem som ska svara eller boka.</p>
+      <div class="linkbox"><input type="text" readonly value="${esc(share)}" id="l-share"><button type="button" class="secondary small" id="c-share">Kopiera</button></div>
+      <div class="actions"><a class="btn btn-secondary small" href="${esc(share)}" target="_blank" rel="noopener">Öppna</a></div>
+    </div>
+    <div class="card">
+      <h2>Din administratörslänk</h2>
+      <p class="hint">Med den här länken ser du alla svar, väljer tid och raderar. Spara den, den visas bara nu. Den finns också kvar längst ned på startsidan i den här webbläsaren.</p>
+      <div class="linkbox"><input type="text" readonly value="${esc(admin)}" id="l-admin"><button type="button" class="secondary small" id="c-admin">Kopiera</button></div>
+      <div class="actions"><a class="btn small" href="${esc(admin)}">Gå till administrationen</a><button type="button" class="link" id="again">Skapa en till</button></div>
+    </div>`;
+  box.classList.remove("hidden");
+  $("form").classList.add("hidden");
+  $("c-share").onclick = (e) => copyText(share, e.target);
+  $("c-admin").onclick = (e) => copyText(admin, e.target);
+  $("again").onclick = () => location.reload();
+  window.scrollTo(0, 0);
+  renderMine();
+}
+
+function renderMine() {
+  const mine = store("hittatid.mine") || [];
+  $("mine").classList.toggle("hidden", !mine.length);
+  $("mine-list").innerHTML = mine.map((p, i) => `
+    <li><span><a href="${esc(p.admin)}">${esc(p.title)}</a><br><span class="muted small-text">${p.mode === "slots" ? "Boka tid" : "Hitta gemensam tid"}, skapad ${esc(fmtDay(p.createdAt.slice(0, 10)))}</span></span>
+    <button type="button" class="link" data-forget="${i}">Glöm</button></li>`).join("");
+}
+$("mine-list").addEventListener("click", (e) => {
+  const i = e.target.dataset.forget;
+  if (i === undefined) return;
+  if (!confirm("Ta bort länken från listan? Själva omröstningen finns kvar, men du behöver administratörslänken för att nå den.")) return;
+  const mine = store("hittatid.mine") || [];
+  mine.splice(Number(i), 1);
+  store("hittatid.mine", mine);
+  renderMine();
+});
+
+(async () => {
+  try { cfg = await api("config"); } catch { /* visa formuläret ändå */ }
+  $("pw-card").classList.toggle("hidden", !cfg.passwordRequired);
+  refreshConfirm();
+  refreshMode();
+  renderMine();
+})();
+</script>
+</body>
+</html>
