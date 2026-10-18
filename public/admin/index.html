@@ -50,7 +50,9 @@ function shareUrl() { return `${location.origin}/p/?id=${pollId}`; }
 
 function render() {
   const s = poll.settings;
-  const collectTxt = { name: "namn", email: "e-post", both: "namn och e-post" }[s.collect];
+  const f = fieldsOf(s);
+  const parts = [f.name && "namn", f.email && "e-post", f.phone && "telefon"].filter(Boolean);
+  const collectTxt = parts.length > 1 ? parts.slice(0, -1).join(", ") + " och " + parts[parts.length - 1] : parts[0];
   const statusTxt = poll.finalOptionId ? "Tid bestämd" : poll.closed ? "Stängd" : "Öppen";
   let html = `
     ${flash}
@@ -70,6 +72,7 @@ function render() {
     </div>`;
 
   html += poll.mode === "poll" ? pollSection() : slotSection();
+  html += contactSection();
 
   html += `<div class="card"><h2>Radera</h2>
     <p class="hint">Raderar omröstningen och alla ${poll.mode === "slots" ? "bokningar" : "svar"} direkt. Det går inte att ångra.</p>
@@ -83,6 +86,8 @@ function render() {
   document.getElementById("open")?.addEventListener("click", () => action({ action: "open" }, () => "Öppen igen."));
   document.getElementById("del").onclick = deleteAll;
   document.getElementById("csv")?.addEventListener("click", exportCsv);
+  document.getElementById("copy-mail")?.addEventListener("click", (e) => copyText(contactList("email").join(", "), e.target));
+  document.getElementById("copy-phone")?.addEventListener("click", (e) => copyText(contactList("phone").join("\n"), e.target));
   app.querySelectorAll("[data-final]").forEach((b) => b.addEventListener("click", () => finalize(b.dataset.final)));
   document.getElementById("unfinal")?.addEventListener("click", () => action({ action: "unfinalize" }, () => "Den bestämda tiden är borttagen. Omröstningen är öppen igen."));
   app.querySelectorAll("[data-delresp]").forEach((b) => b.addEventListener("click", () => {
@@ -129,7 +134,7 @@ function pollSection() {
     for (const o of poll.options) html += `<th><span class="th-date">${esc(fmtDay(o.date))}</span><span class="th-time">${esc(fmtTime(o))}</span></th>`;
     html += `<th></th></tr></thead><tbody>`;
     for (const r of poll.responses) {
-      const who = [r.name, r.email].filter(Boolean).join(", ");
+      const who = whoText(r);
       html += `<tr><td>${esc(who)}</td>`;
       for (const o of poll.options) { const a = r.answers[o.id] || "n"; html += `<td class="${a}">${sym[a]}</td>`; }
       html += `<td><button type="button" class="link small-text" data-delresp="${r.id}">Ta bort</button></td></tr>`;
@@ -164,7 +169,7 @@ function slotSection() {
       html += `<li style="align-items:flex-start"><span style="flex:0 0 110px"><strong>${esc(fmtTime(o))}</strong><br><span class="muted small-text">${bs.length}/${cap}</span></span><span style="flex:1 1 200px">`;
       if (!bs.length) html += `<span class="muted small-text">Ledig</span>`;
       for (const b of bs) {
-        const who = [b.name, b.email].filter(Boolean).join(", ");
+        const who = whoText(b);
         html += `<span style="display:flex;justify-content:space-between;gap:8px;align-items:center">${esc(who)} <button type="button" class="link small-text" data-delbook="${b.id}">Ta bort</button></span>`;
       }
       html += `</span></li>`;
@@ -176,12 +181,79 @@ function slotSection() {
   return html;
 }
 
+// ---------- kontakta deltagarna ----------
+
+function people() {
+  return poll.mode === "poll" ? poll.responses : poll.bookings;
+}
+
+function contactList(key) {
+  const seen = new Set();
+  const out = [];
+  for (const p of people()) {
+    const v = (p[key] || "").trim();
+    const k = v.toLowerCase();
+    if (v && !seen.has(k)) { seen.add(k); out.push(v); }
+  }
+  return out;
+}
+
+function mailDraft() {
+  const share = shareUrl();
+  const final = poll.finalOptionId ? poll.options.find((o) => o.id === poll.finalOptionId) : null;
+  const sign = poll.organizer ? `\n\nVänliga hälsningar\n${poll.organizer}` : "\n\nVänliga hälsningar";
+  if (final) {
+    const ics = `${location.origin}/api/polls/${pollId}/ics/${final.id}`;
+    return {
+      subject: `Bestämd tid: ${poll.title}`,
+      body: `Hej!\n\nTiden för ${poll.title} är bestämd:\n${fmtOption(final, true)}${poll.location ? "\nPlats: " + poll.location : ""}\n\nLägg till i kalendern: ${ics}${sign}`,
+    };
+  }
+  if (poll.mode === "poll") {
+    return { subject: poll.title, body: `Hej!\n\nGäller ${poll.title}.\n\nSvar och resultat: ${share}${sign}` };
+  }
+  return { subject: poll.title, body: `Hej!\n\nGäller din bokade tid för ${poll.title}.${poll.location ? "\nPlats: " + poll.location : ""}\n\nBokningssidan: ${share}${sign}` };
+}
+
+function contactSection() {
+  const f = fieldsOf(poll.settings);
+  if (!f.email && !f.phone) return "";
+  const mails = contactList("email");
+  const phones = contactList("phone");
+  const who = poll.mode === "poll" ? "som svarat" : "som bokat";
+  let html = `<div class="card"><h2>Kontakta deltagarna</h2>`;
+  if (!mails.length && !phones.length) {
+    return html + `<p class="hint">Ingen ${who} än.</p></div>`;
+  }
+  if (mails.length) {
+    const d = mailDraft();
+    let href = `mailto:?bcc=${encodeURIComponent(mails.join(","))}&subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}`;
+    let tooLong = false;
+    if (href.length > 1900) {
+      href = `mailto:?subject=${encodeURIComponent(d.subject)}&body=${encodeURIComponent(d.body)}`;
+      tooLong = true;
+    }
+    html += `<p class="hint">${poll.finalOptionId ? "Öppnar ett färdigt mejl om den bestämda tiden i ditt mejlprogram." : "Öppnar ett nytt mejl i ditt mejlprogram."} Alla ${mails.length} adresser läggs i hemlig kopia, så att deltagarna inte ser varandra. Du skickar från den adress du själv väljer.</p>
+      ${tooLong ? `<p class="hint"><strong>Många adresser:</strong> klistra in dem själv i hemlig kopia, efter att du kopierat dem med knappen nedan.</p>` : ""}
+      <div class="actions"><a class="btn small" href="${esc(href)}">Mejla deltagarna</a>
+      <button type="button" class="secondary small" id="copy-mail">Kopiera e-postadresser (${mails.length})</button>`;
+  } else {
+    html += `<div class="actions">`;
+  }
+  if (phones.length) {
+    html += `<button type="button" class="secondary small" id="copy-phone">Kopiera telefonnummer (${phones.length})</button>`;
+  }
+  return html + `</div></div>`;
+}
+
 // ---------- export och radering ----------
 
 function exportCsv() {
-  const c = poll.settings.collect;
-  const idCols = c === "both" ? ["Namn", "E-post"] : c === "email" ? ["E-post"] : ["Namn"];
-  const idVals = (r) => c === "both" ? [r.name, r.email] : c === "email" ? [r.email] : [r.name];
+  const f = fieldsOf(poll.settings);
+  const keys = ["name", "email", "phone"].filter((k) => f[k]);
+  const labels = { name: "Namn", email: "E-post", phone: "Telefon" };
+  const idCols = keys.map((k) => labels[k]);
+  const idVals = (r) => keys.map((k) => r[k] || "");
   let rows;
   if (poll.mode === "poll") {
     const label = { y: "Ja", m: MAYBE_LABEL, n: "Nej" };

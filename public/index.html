@@ -86,12 +86,12 @@
     <div class="card">
       <h2>Deltagarna</h2>
       <label>Vad ska deltagarna uppge?</label>
-      <div class="seg" role="radiogroup">
-        <label><input type="radio" name="collect" value="name" checked>Namn</label>
-        <label><input type="radio" name="collect" value="email">E-post</label>
-        <label><input type="radio" name="collect" value="both">Namn och e-post</label>
+      <div class="seg multi" role="group" aria-label="Uppgifter som deltagarna ska lämna">
+        <label><input type="checkbox" name="field" value="name" checked>Namn</label>
+        <label><input type="checkbox" name="field" value="email">E-post</label>
+        <label><input type="checkbox" name="field" value="phone">Telefon</label>
       </div>
-      <p class="hint">Både namn och e-post är personuppgifter. Med bara namn samlar du in mindre, och e-post behövs bara om deltagarna ska få bekräftelse.</p>
+      <p class="hint">Det du kryssar i blir obligatoriskt för deltagarna. Allt är personuppgifter, så välj bara det du behöver. Telefon och e-post visas aldrig för andra deltagare.</p>
 
       <label class="check" id="confirm-wrap"><input type="checkbox" id="emailConfirm"> <span id="confirm-text">Skicka bekräftelse via e-post till deltagarna</span></label>
 
@@ -159,7 +159,11 @@ $("g-date").value = todayStr();
 $("password").value = store("hittatid.pw") || "";
 
 function mode() { return document.querySelector("input[name=mode]:checked").value; }
-function collect() { return document.querySelector("input[name=collect]:checked").value; }
+function fields() {
+  const f = { name: false, email: false, phone: false };
+  document.querySelectorAll("input[name=field]:checked").forEach((c) => { f[c.value] = true; });
+  return f;
+}
 
 function refreshMode() {
   const slots = mode() === "slots";
@@ -175,12 +179,14 @@ function refreshMode() {
 }
 
 function refreshConfirm() {
-  const wantsEmail = collect() !== "name";
+  const wantsEmail = fields().email;
   const cb = $("emailConfirm");
   const can = wantsEmail && cfg.emailAvailable;
   cb.disabled = !can;
   if (!can) cb.checked = false;
   $("confirm-wrap").classList.toggle("disabled", !can);
+  // Utan e-posttjänst visas inte valet alls
+  $("confirm-wrap").classList.toggle("hidden", !cfg.emailAvailable);
   $("confirm-text").textContent = !cfg.emailAvailable
     ? "Skicka bekräftelse via e-post (e-postutskick är inte inställt på webbplatsen än)"
     : !wantsEmail
@@ -272,7 +278,7 @@ function addMsg(text, isError) { boxMsg("s-msg", text, isError); }
 function genMsg(text, isError) { boxMsg("g-msg", text, isError); }
 
 document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", refreshMode));
-document.querySelectorAll("input[name=collect]").forEach((r) => r.addEventListener("change", refreshConfirm));
+document.querySelectorAll("input[name=field]").forEach((r) => r.addEventListener("change", refreshConfirm));
 
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -280,6 +286,8 @@ $("form").addEventListener("submit", async (e) => {
   const m = mode();
   if (!$("title").value.trim()) return showError("Ange en rubrik.");
   if (!options.length) return showError("Lägg till minst en tid.");
+  const f = fields();
+  if (!f.name && !f.email && !f.phone) return showError("Välj minst en uppgift som deltagarna ska lämna.");
   if (m === "slots" && options.some((o) => !o.start)) return showError("I läget boka tid måste alla tider ha en starttid. Ta bort tiderna som saknar det.");
 
   const body = {
@@ -289,7 +297,7 @@ $("form").addEventListener("submit", async (e) => {
     location: $("location").value,
     organizer: $("organizer").value,
     options,
-    collect: collect(),
+    fields: f,
     emailConfirm: $("emailConfirm").checked,
     allowMaybe: $("allowMaybe").checked,
     showOthers: m === "poll" ? $("showOthersPoll").checked : $("showOthersSlots").checked,

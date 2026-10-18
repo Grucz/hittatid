@@ -25,6 +25,17 @@ async function api(path, { method = "GET", body, headers = {} } = {}) {
   return data;
 }
 
+// Vilka uppgifter deltagarna ska lämna (äldre omröstningar har "collect")
+function fieldsOf(settings) {
+  if (settings.fields) return settings.fields;
+  const c = settings.collect || "name";
+  return { name: c !== "email", email: c !== "name", phone: false };
+}
+
+function whoText(r) {
+  return [r.name, r.email, r.phone].filter(Boolean).join(", ");
+}
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

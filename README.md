@@ -48,10 +48,14 @@ Resends gratisplan räcker för 100 mejl per dygn och 3 000 per månad. För att
 
 ## Personuppgifter
 
-- När du skapar väljer du om deltagarna uppger namn, e-post eller båda.
-- E-post visas aldrig för andra deltagare, bara för dig i administrationen.
+- När du skapar kryssar du i vilka uppgifter deltagarna ska lämna: namn, e-post och/eller telefon.
+- E-post och telefon visas aldrig för andra deltagare, bara för dig i administrationen.
 - Allt raderas automatiskt 7, 30, 90 eller 365 dagar efter sista tiden (du väljer), eller direkt när du klickar Radera.
 - Data ligger i Netlify Blobs. Netlify är ett amerikanskt bolag, vilket kan behöva nämnas i din integritetspolicy.
+
+## Kontakta deltagarna utan e-posttjänst
+
+I administrationen finns knappen **Mejla deltagarna**. Den öppnar ditt eget mejlprogram med alla adresser i hemlig kopia och en färdig text (med länk till kalenderfil när tiden är bestämd). Där finns också knappar för att kopiera alla e-postadresser eller telefonnummer.
 
 ## Kända begränsningar i första versionen
 

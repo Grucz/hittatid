@@ -119,8 +119,10 @@ export function validateNewPoll(body) {
   const title = str(body.title, 140);
   if (!title) return { error: "Ange en rubrik." };
 
-  const collect = ["name", "email", "both"].includes(body.collect) ? body.collect : "name";
-  const wantsEmail = collect !== "name";
+  const f = body.fields && typeof body.fields === "object" ? body.fields : { name: true };
+  const fields = { name: Boolean(f.name), email: Boolean(f.email), phone: Boolean(f.phone) };
+  if (!fields.name && !fields.email && !fields.phone) return { error: "Välj minst en uppgift som deltagarna ska lämna." };
+  const wantsEmail = fields.email;
 
   const rawOptions = Array.isArray(body.options) ? body.options : [];
   const maxOptions = mode === "slots" ? 400 : 100;
@@ -147,7 +149,7 @@ export function validateNewPoll(body) {
   sortOptions(options);
 
   const settings = {
-    collect,
+    fields,
     emailConfirm: Boolean(body.emailConfirm) && wantsEmail,
     showOthers: mode === "poll" ? body.showOthers !== false : Boolean(body.showOthers),
     allowMaybe: mode === "poll" ? body.allowMaybe !== false : false,
@@ -193,21 +195,40 @@ export function isClosed(poll) {
   return false;
 }
 
-// Kontrollerar namn/e-post utifrån inställningen collect
+// Vilka uppgifter deltagarna ska lämna. Äldre omröstningar har "collect" i stället för "fields".
+export function fieldsOf(settings) {
+  if (settings.fields) return settings.fields;
+  const c = settings.collect || "name";
+  return { name: c !== "email", email: c !== "name", phone: false };
+}
+
+export function normalizePhone(v) {
+  return String(v || "").replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+}
+
+// Kontrollerar namn, e-post och telefon utifrån omröstningens inställning
 export function validateIdentity(poll, body) {
-  const collect = poll.settings.collect;
+  const fields = fieldsOf(poll.settings);
   const name = str(body.name, 100);
   const email = str(body.email, 200).toLowerCase();
-  if ((collect === "name" || collect === "both") && !name) return { error: "Ange ditt namn." };
-  if ((collect === "email" || collect === "both") && !isEmail(email)) return { error: "Ange en giltig e-postadress." };
+  const phone = str(body.phone, 40);
+  if (fields.name && !name) return { error: "Ange ditt namn." };
+  if (fields.email && !isEmail(email)) return { error: "Ange en giltig e-postadress." };
+  if (fields.phone) {
+    if (!/^[\d\s+\-()]+$/.test(phone) || normalizePhone(phone).replace("+", "").length < 7) {
+      return { error: "Ange ett giltigt telefonnummer." };
+    }
+  }
   return {
-    name: collect === "email" ? "" : name,
-    email: collect === "name" ? "" : email,
+    name: fields.name ? name : "",
+    email: fields.email ? email : "",
+    phone: fields.phone ? phone : "",
   };
 }
 
+// Det som identifierar en person: e-post i första hand, sedan telefon, sist namn
 export function personKey(identity) {
-  const base = identity.email || identity.name.toLowerCase().replace(/\s+/g, " ");
+  const base = identity.email || normalizePhone(identity.phone) || (identity.name || "").toLowerCase().replace(/\s+/g, " ");
   return hash(base).slice(0, 24);
 }
 

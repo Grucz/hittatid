@@ -31,15 +31,19 @@ function header() {
     ${flash}`;
 }
 
-function identityFields(prefill = {}, lockEmail = false) {
-  const c = poll.settings.collect;
+function identityFields(prefill = {}, lockContact = false) {
+  const f = fieldsOf(poll.settings);
   let html = "";
-  if (c === "name" || c === "both") {
+  if (f.name) {
     html += `<label for="f-name">Ditt namn</label><input type="text" id="f-name" maxlength="100" autocomplete="name" value="${esc(prefill.name || "")}">`;
   }
-  if (c === "email" || c === "both") {
-    html += `<label for="f-email">Din e-post</label><input type="email" id="f-email" maxlength="200" autocomplete="email" value="${esc(prefill.email || "")}" ${lockEmail ? "readonly" : ""}>`;
+  if (f.email) {
+    html += `<label for="f-email">Din e-post</label><input type="email" id="f-email" maxlength="200" autocomplete="email" value="${esc(prefill.email || "")}" ${lockContact ? "readonly" : ""}>`;
   }
+  if (f.phone) {
+    html += `<label for="f-phone">Ditt telefonnummer</label><input type="tel" id="f-phone" maxlength="40" autocomplete="tel" inputmode="tel" value="${esc(prefill.phone || "")}" ${lockContact ? "readonly" : ""}>`;
+  }
+  if (f.email || f.phone) html += `<p class="hint">${f.email && f.phone ? "E-post och telefonnummer" : f.email ? "E-postadressen" : "Telefonnumret"} visas bara för arrangören.</p>`;
   if (poll.settings.emailConfirm) html += `<p class="hint">Du får en bekräftelse till din e-post.</p>`;
   return html;
 }
@@ -48,6 +52,7 @@ function identityValues() {
   return {
     name: document.getElementById("f-name")?.value || "",
     email: document.getElementById("f-email")?.value || "",
+    phone: document.getElementById("f-phone")?.value || "",
   };
 }
 

@@ -1,7 +1,7 @@
 // Hitta tid: API (Netlify Function, svarar på /api/*)
 import {
   getDataStore, env, randomId, hash, safeEqual, json, fail,
-  validateNewPoll, validateIdentity, personKey, isClosed,
+  validateNewPoll, validateIdentity, personKey, isClosed, fieldsOf,
   loadPoll, loadResponses, loadBookings, seatCounts, tally, deletePollData,
   buildIcs, emailAvailable, sendMail, escapeHtml, mailLayout, icsAttachment, formatOption, localToUtc,
 } from "../lib/core.mjs";
@@ -131,8 +131,8 @@ function publicPoll(poll) {
   return { ...rest, closed: isClosed(poll), emailAvailable: emailAvailable() };
 }
 
-function displayName(r, index, collect) {
-  if (collect === "email") return `Deltagare ${index + 1}`;
+function displayName(r, index, fields) {
+  if (!fields.name) return `Deltagare ${index + 1}`;
   return r.name || `Deltagare ${index + 1}`;
 }
 
@@ -143,11 +143,11 @@ async function publicView(store, poll) {
     out.tally = tally(poll, responses);
     out.responseCount = responses.length;
     if (poll.settings.showOthers) {
-      out.responses = responses.map((r, i) => ({ id: r.id, name: displayName(r, i, poll.settings.collect), answers: r.answers }));
+      out.responses = responses.map((r, i) => ({ id: r.id, name: displayName(r, i, fieldsOf(poll.settings)), answers: r.answers }));
     }
   } else {
     out.counts = await seatCounts(store, poll.id);
-    if (poll.settings.showOthers && poll.settings.collect !== "email") {
+    if (poll.settings.showOthers && fieldsOf(poll.settings).name) {
       const bookings = await loadBookings(store, poll.id);
       out.names = {};
       for (const b of bookings) (out.names[b.slotId] ||= []).push(b.name);
@@ -196,9 +196,13 @@ async function createResponse(req, store, poll) {
   const identity = validateIdentity(poll, body);
   if (identity.error) return fail(identity.error);
 
-  if (identity.email) {
+  if (identity.email || identity.phone) {
     const { modified } = await store.setJSON(`who/${poll.id}/${personKey(identity)}/svar`, { at: new Date().toISOString() }, { onlyIfNew: true });
-    if (!modified) return fail("Den här e-postadressen har redan svarat. Använd länken i bekräftelsen för att ändra svaret, eller hör av dig till arrangören.");
+    if (!modified) {
+      return fail(identity.email
+        ? "Den här e-postadressen har redan svarat. Ändra svaret från webbläsaren du svarade i, eller hör av dig till arrangören."
+        : "Det här telefonnumret har redan svarat. Ändra svaret från webbläsaren du svarade i, eller hör av dig till arrangören.");
+    }
   }
 
   const token = randomId(24);
@@ -206,6 +210,7 @@ async function createResponse(req, store, poll) {
     id: randomId(10),
     name: identity.name,
     email: identity.email,
+    phone: identity.phone,
     answers: cleanAnswers(poll, body.answers),
     tokenHash: hash(token),
     createdAt: new Date().toISOString(),
@@ -220,7 +225,7 @@ async function getOwnResponse(url, store, poll, respId) {
   const resp = await store.get(`resp/${poll.id}/${respId}`, { type: "json" });
   const token = url.searchParams.get("token") || "";
   if (!resp || !token || !safeEqual(hash(token), resp.tokenHash)) return fail("Svaret hittades inte.", 404);
-  return json({ id: resp.id, name: resp.name, email: resp.email, answers: resp.answers });
+  return json({ id: resp.id, name: resp.name, email: resp.email, phone: resp.phone || "", answers: resp.answers });
 }
 
 async function updateResponse(req, url, store, poll, respId) {
@@ -231,7 +236,7 @@ async function updateResponse(req, url, store, poll, respId) {
   if (!resp || !token || !safeEqual(hash(token), resp.tokenHash)) return fail("Svaret hittades inte.", 404);
   const body = await readBody(req);
   resp.answers = cleanAnswers(poll, body.answers);
-  if (poll.settings.collect !== "email" && typeof body.name === "string" && body.name.trim()) resp.name = body.name.trim().slice(0, 100);
+  if (fieldsOf(poll.settings).name && typeof body.name === "string" && body.name.trim()) resp.name = body.name.trim().slice(0, 100);
   resp.updatedAt = new Date().toISOString();
   await store.setJSON(key, resp);
   await mailResponseConfirmation(req, poll, resp, token, true);
@@ -298,6 +303,7 @@ async function createBooking(req, store, poll) {
     slotId: slot.id,
     name: identity.name,
     email: identity.email,
+    phone: identity.phone,
     seatKey,
     claimKeys: claimed,
     tokenHash: hash(token),
@@ -415,7 +421,7 @@ async function adminAction(req, store, poll) {
       const key = `resp/${poll.id}/${body.responseId}`;
       const r = await store.get(key, { type: "json" });
       if (!r) return fail("Svaret finns inte.", 404);
-      if (r.email) await store.delete(`who/${poll.id}/${personKey(r)}/svar`);
+      if (r.email || r.phone) await store.delete(`who/${poll.id}/${personKey(r)}/svar`);
       await store.delete(key);
       return json({ ok: true });
     }
