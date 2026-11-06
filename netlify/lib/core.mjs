@@ -13,15 +13,15 @@ import crypto from "node:crypto";
 export const TZ = "Europe/Stockholm";
 const STORE_NAME = "hittatid";
 
-let storePromise = null;
+// Lagringen måste hämtas på nytt vid varje anrop. Netlify ger varje anrop en egen,
+// tidsbegränsad åtkomstnyckel, och en sparad lagring får till slut en utgången nyckel
+// ("Token expired"). Bara själva modulimporten sparas.
+let blobsModule = null;
 export async function getDataStore() {
   if (globalThis.__HITTATID_TEST_STORE__) return globalThis.__HITTATID_TEST_STORE__;
-  if (!storePromise) {
-    storePromise = import("@netlify/blobs").then(({ getStore }) =>
-      getStore({ name: STORE_NAME, consistency: "strong" })
-    );
-  }
-  return storePromise;
+  if (!blobsModule) blobsModule = import("@netlify/blobs");
+  const { getStore } = await blobsModule;
+  return getStore({ name: STORE_NAME, consistency: "strong" });
 }
 
 export function env(name) {

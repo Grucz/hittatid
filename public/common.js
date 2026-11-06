@@ -102,7 +102,10 @@ async function copyText(text, btn) {
 
 function downloadCsv(filename, rows) {
   const csv = rows.map((r) => r.map((c) => {
-    const s = String(c ?? "");
+    let s = String(c ?? "");
+    // Skydd mot CSV-injektion: text som Excel annars kan tolka som formel får en apostrof först.
+    // Telefonnummer som "+46 70 ..." lämnas orörda.
+    if (/^[=@\t\r]/.test(s) || (/^[+-]/.test(s) && !/^[+-][\d\s()-]*$/.test(s))) s = "'" + s;
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join(";")).join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });

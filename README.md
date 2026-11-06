@@ -7,6 +7,12 @@ Eget verktyg för två saker:
 
 Byggt för Netlify: statiska sidor i `public/`, serverlogik i Netlify Functions och data i Netlify Blobs. Ingen Supabase och inget annat betalt.
 
+
+## Dokumentation och tester
+
+- `docs/TEKNISK-BESKRIVNING.md`: arkitektur, personuppgifter, säkerhet, kända begränsningar och drift utanför Netlify. Underlag för IT-granskning.
+- `test/README.md`: så kör du de automatiska testerna lokalt.
+
 ## Mappar
 
 | Sökväg | Innehåll |
@@ -57,7 +63,7 @@ Resends gratisplan räcker för 100 mejl per dygn och 3 000 per månad. För att
 
 I administrationen finns knappen **Mejla deltagarna**. Den öppnar ditt eget mejlprogram med alla adresser i hemlig kopia och en färdig text (med länk till kalenderfil när tiden är bestämd). Där finns också knappar för att kopiera alla e-postadresser eller telefonnummer.
 
-## Kända begränsningar i första versionen
+## Kända begränsningar
 
 - Tider går inte att ändra efter att omröstningen skapats.
 - Den som bokat eller svarat kan ändra eller avboka från samma webbläsare, eller via länken i bekräftelsemejlet. Utan e-post och i en annan webbläsare behöver du ta bort bokningen åt dem.
